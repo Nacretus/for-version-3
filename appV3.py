@@ -14,6 +14,12 @@ import numpy as np
 from loguru import logger
 
 # Define Vocab class FIRST - this must match exactly what was used in training
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == 'Vocab':
+            return Vocab
+        return super().find_class(module, name)
+    
 class Vocab:
     """Simple vocabulary class for tokenization"""
     def __init__(self, max_size=50000):
