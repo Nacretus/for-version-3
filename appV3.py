@@ -596,11 +596,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan context manager for initializing and cleaning up resources"""
     # Startup: Load model and resources
     # Set model paths (modify these to match your deployment)
-    model_path = os.getenv("MODEL_PATH", "fastapi app/models/final_model.pt")#v2/best_model.pt
-    vocab_path = os.getenv("VOCAB_PATH", "fastapi app/embeddings/vocab.pkl")#v2/vocab.pkl
-    embedding_path = os.getenv("EMBEDDING_PATH", "fastapi app/embeddings/embedding_matrix.pt")#v2/embedding_matrix.pt
-    threshold_path = os.getenv("THRESHOLD_PATH", "fastapi app/embeddings/optimal_category_thresholds.npy")#v2/optimal_category_thresholds.npy
-    custom_profanity_path = os.getenv("CUSTOM_PROFANITY_PATH", "fastapi app/embeddings/merge-profanity.csv")#v2/merge-profanity.csv
+    model_path = os.getenv("MODEL_PATH", "models/final_model.pt")#v2/best_model.pt
+    vocab_path = os.getenv("VOCAB_PATH", "embeddings/vocab.pkl")#v2/vocab.pkl
+    embedding_path = os.getenv("EMBEDDING_PATH", "embeddings/embedding_matrix.pt")#v2/embedding_matrix.pt
+    threshold_path = os.getenv("THRESHOLD_PATH", "embeddings/optimal_category_thresholds.npy")#v2/optimal_category_thresholds.npy
+    custom_profanity_path = os.getenv("CUSTOM_PROFANITY_PATH", "embeddings/merge-profanity.csv")#v2/merge-profanity.csv
     
     logger.info(f"Starting up with model path: {model_path}")
     logger.info(f"Vocabulary path: {vocab_path}")
