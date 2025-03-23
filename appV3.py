@@ -977,4 +977,4 @@ async def test_model(
 # Run the app if executed directly
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("appV3:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("appV3:app", host="127.0.0.1", port=8080, reload=True)
