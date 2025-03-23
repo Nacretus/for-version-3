@@ -1,6 +1,7 @@
 # appV3.py
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
@@ -12,14 +13,9 @@ import re
 import os
 import numpy as np
 from loguru import logger
+import json
 
 # Define Vocab class FIRST - this must match exactly what was used in training
-class CustomUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        if name == 'Vocab':
-            return Vocab
-        return super().find_class(module, name)
-    
 class Vocab:
     """Simple vocabulary class for tokenization"""
     def __init__(self, max_size=50000):
@@ -60,6 +56,48 @@ class Vocab:
         """Load vocabulary from file"""
         with open(filepath, 'rb') as f:
             return pickle.load(f)
+
+# Add new function to load vocabulary from JSON
+def load_vocab_from_json(json_path):
+    """Load vocabulary from JSON file instead of pickle"""
+    logger.info(f"Loading vocabulary from JSON file: {json_path}")
+    
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Create a new Vocab object
+        vocab = Vocab()
+        
+        # Populate from JSON data
+        if 'max_size' in data:
+            vocab.max_size = data['max_size']
+        
+        # Load word2idx dictionary
+        if 'word2idx' in data:
+            vocab.word2idx = data['word2idx']
+        elif 'stoi' in data:  # Alternative name
+            vocab.word2idx = data['stoi']
+        
+        # Load idx2word dictionary, making sure keys are integers
+        if 'idx2word' in data:
+            vocab.idx2word = {int(k): v for k, v in data['idx2word'].items()}
+        elif 'itos' in data:  # Alternative name
+            vocab.idx2word = {i: word for i, word in enumerate(data['itos'])}
+        else:
+            # Reconstruct idx2word from word2idx
+            vocab.idx2word = {int(idx): word for word, idx in vocab.word2idx.items()}
+        
+        # Load word_count if available
+        if 'word_count' in data:
+            vocab.word_count = data['word_count']
+        
+        logger.info(f"Successfully loaded vocabulary from JSON with {len(vocab.word2idx)} words")
+        return vocab
+        
+    except Exception as e:
+        logger.error(f"Error loading vocabulary from JSON: {e}")
+        return None
 
 # Define Improved ToxicityClassifier model
 class ToxicityClassifier(nn.Module):
@@ -402,9 +440,22 @@ class ModelService:
             logger.info(f"Loading vocabulary from {vocab_path}")
             logger.info(f"Loading embeddings from {embedding_path}")
 
-            # Load vocabulary
-            with open(vocab_path, 'rb') as f:
-                self.vocab = pickle.load(f)
+            # Check if vocabulary path ends with .json
+            if vocab_path.endswith('.json'):
+                # Load vocabulary from JSON
+                self.vocab = load_vocab_from_json(vocab_path)
+                if not self.vocab:
+                    logger.error("Failed to load vocabulary from JSON")
+                    return False
+            else:
+                # Load vocabulary from pickle (original method)
+                try:
+                    with open(vocab_path, 'rb') as f:
+                        self.vocab = pickle.load(f)
+                except Exception as e:
+                    logger.error(f"Error loading vocabulary from pickle: {e}")
+                    return False
+                    
             logger.info(f"Vocabulary loaded with {len(self.vocab.word2idx)} words")
 
             # Load embedding matrix
@@ -602,11 +653,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan context manager for initializing and cleaning up resources"""
     # Startup: Load model and resources
     # Set model paths (modify these to match your deployment)
-    model_path = os.getenv("MODEL_PATH", "models/final_model.pt")#v2/best_model.pt
-    vocab_path = os.getenv("VOCAB_PATH", "embeddings/vocab.pkl")#v2/vocab.pkl
-    embedding_path = os.getenv("EMBEDDING_PATH", "embeddings/embedding_matrix.pt")#v2/embedding_matrix.pt
-    threshold_path = os.getenv("THRESHOLD_PATH", "embeddings/optimal_category_thresholds.npy")#v2/optimal_category_thresholds.npy
-    custom_profanity_path = os.getenv("CUSTOM_PROFANITY_PATH", "embeddings/merge-profanity.csv")#v2/merge-profanity.csv
+    model_path = os.getenv("MODEL_PATH", "models/best_model.pt")
+    vocab_path = os.getenv("VOCAB_PATH", "converted_data_option1.json")  # Default to JSON file
+    embedding_path = os.getenv("EMBEDDING_PATH", "embeddings/embedding_matrix.pt")
+    threshold_path = os.getenv("THRESHOLD_PATH", "embeddings/optimal_category_thresholds.npy")
+    custom_profanity_path = os.getenv("CUSTOM_PROFANITY_PATH", "embeddings/merge-profanity.csv")
     
     logger.info(f"Starting up with model path: {model_path}")
     logger.info(f"Vocabulary path: {vocab_path}")
@@ -634,6 +685,18 @@ async def lifespan(app: FastAPI):
                 if file.startswith('vocab') and file.endswith('.pkl'):
                     alt_path = os.path.join(dir_path, file)
                     logger.info(f"Found alternative vocabulary file: {alt_path}")
+                    vocab_path = alt_path
+                    break
+                # Also look for JSON files
+                elif file.startswith('vocab') and file.endswith('.json'):
+                    alt_path = os.path.join(dir_path, file)
+                    logger.info(f"Found alternative vocabulary JSON file: {alt_path}")
+                    vocab_path = alt_path
+                    break
+                # Or check for the converted_data JSON file
+                elif file.startswith('converted_data') and file.endswith('.json'):
+                    alt_path = os.path.join(dir_path, file)
+                    logger.info(f"Found converted data JSON file: {alt_path}")
                     vocab_path = alt_path
                     break
             
@@ -679,9 +742,14 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def root():
-    """Root endpoint with API information"""
+    """Redirect to Swagger UI documentation"""
+    return RedirectResponse(url="/docs")
+
+@app.get("/info")
+async def api_info():
+    """API information endpoint"""
     return {
         "message": "Enhanced Toxicity Classification API with Improved Detection and Censoring",
         "model_version": model_service.model_version,
@@ -909,4 +977,4 @@ async def test_model(
 # Run the app if executed directly
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("appV3:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("appV3:app", host="0.0.0.0", port=8080, reload=True)
